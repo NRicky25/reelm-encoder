@@ -65,7 +65,15 @@ class Job:
         }
 
 
+INCOMPLETE = ".incomplete"  # marker file: this folder's encode never finished
+PENDING_UPLOADS = "pending-uploads.txt"  # video ids whose upload never finished
+
+
 class JobQueue:
+    """Jobs run one at a time. Every status change happens under one lock, so a
+    job cancelled while queued can never start, and the page always sees a
+    consistent state."""
+
     def __init__(
         self,
         settings: Settings,
@@ -78,8 +86,11 @@ class JobQueue:
         self.jobs: list[Job] = []
         self._lock = threading.Lock()
         self._wake = threading.Event()
+        self._stopping = False
+        self._thread: threading.Thread | None = None
         if start:
-            threading.Thread(target=self._run, daemon=True, name="encoder").start()
+            self._thread = threading.Thread(target=self._run, daemon=True, name="encoder")
+            self._thread.start()
 
     # ── public API (called from web requests) ──
     def add(self, paths: list[str], *, upload: bool, use_gpu: bool) -> list[Job]:
@@ -89,7 +100,7 @@ class JobQueue:
         self._wake.set()
         return new
 
-    def list(self) -> list[dict[str, Any]]:
+    def snapshot(self) -> list[dict[str, Any]]:
         with self._lock:
             return [j.to_dict() for j in self.jobs]
 
@@ -98,13 +109,14 @@ class JobQueue:
             return next((j for j in self.jobs if j.id == job_id), None)
 
     def cancel(self, job_id: str) -> bool:
-        job = self.get(job_id)
-        if job is None or job.status in FINISHED:
-            return False
-        job.cancel.set()
-        if job.status == "queued":
-            self._finish(job, "cancelled", "Cancelled")
-        return True
+        with self._lock:
+            job = next((j for j in self.jobs if j.id == job_id), None)
+            if job is None or job.status in FINISHED:
+                return False
+            job.cancel.set()  # a running job notices this and stops
+            if job.status == "queued":
+                job.status, job.message = "cancelled", "Cancelled"
+            return True
 
     def remove(self, job_id: str) -> bool:
         """Forget a finished job (encoded files of encode-only jobs stay on disk)."""
@@ -119,29 +131,99 @@ class JobQueue:
         with self._lock:
             return any(j.status not in FINISHED for j in self.jobs)
 
-    # ── worker ──
-    def _next(self) -> Job | None:
+    def stop(self, timeout: float = 10) -> None:
+        """Stop the worker after the current job (used by tests)."""
+        self._stopping = True
         with self._lock:
-            return next((j for j in self.jobs if j.status == "queued"), None)
+            for job in self.jobs:
+                job.cancel.set()
+        self._wake.set()
+        if self._thread is not None:
+            self._thread.join(timeout)
+
+    # ── left over from a window closed mid-job ──
+    def recover(self) -> list[str]:
+        """Delete half-finished encodes, and half-uploaded videos in R2. Returns notes."""
+        notes: list[str] = []
+        work = self.settings.work_dir
+        if work.is_dir():
+            for marker in work.glob(f"*/{INCOMPLETE}"):
+                shutil.rmtree(marker.parent, ignore_errors=True)
+                notes.append(f"Removed an unfinished encode ({marker.parent.name})")
+        pending = self._pending_ids()
+        if pending and self.settings.r2_ready:
+            try:
+                r2 = self.r2_factory(self.settings)
+                for video_id in pending:
+                    if r2.delete_video(video_id):
+                        notes.append(f"Removed a half-uploaded video from R2 ({video_id})")
+                    self._unmark_pending(video_id)
+            except R2Error as e:
+                notes.append(f"Couldn't clean up half-uploaded videos yet: {e}")
+        return notes
+
+    def _pending_file(self) -> Path:
+        return self.settings.work_dir / PENDING_UPLOADS
+
+    def _pending_ids(self) -> list[str]:
+        try:
+            return [x for x in self._pending_file().read_text().split() if x]
+        except OSError:
+            return []
+
+    def _mark_pending(self, video_id: str) -> None:
+        self.settings.work_dir.mkdir(parents=True, exist_ok=True)
+        with self._pending_file().open("a") as f:
+            f.write(video_id + "\n")
+
+    def _unmark_pending(self, video_id: str) -> None:
+        rest = [x for x in self._pending_ids() if x != video_id]
+        try:
+            if rest:
+                self._pending_file().write_text("\n".join(rest) + "\n")
+            else:
+                self._pending_file().unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    # ── worker ──
+    def _claim_next(self) -> Job | None:
+        """Take the next queued job and mark it started, in one step."""
+        with self._lock:
+            job = next((j for j in self.jobs if j.status == "queued"), None)
+            if job is not None:
+                job.status, job.message, job.progress = "encoding", "Reading video…", 0.0
+            return job
 
     def _run(self) -> None:
-        while True:
-            job = self._next()
+        while not self._stopping:
+            job = self._claim_next()
             if job is None:
                 self._wake.wait()
                 self._wake.clear()
                 continue
             try:
                 self.process(job)
-            except Exception as e:  # never let one bad job stop the queue
-                self._finish(job, "failed", "Failed", error=f"Unexpected error: {e}")
+            except BaseException as e:  # never let one bad job stop the queue
+                if job.out_dir is not None:
+                    shutil.rmtree(job.out_dir, ignore_errors=True)
+                self._finish(job, "failed", "Failed", error=f"Unexpected error: {e!r}")
+                if not isinstance(e, Exception):
+                    raise
 
     def _finish(self, job: Job, status: Status, message: str, error: str | None = None) -> None:
-        job.status, job.message, job.error, job.eta_seconds = status, message, error, None
+        with self._lock:
+            job.status, job.message, job.error, job.eta_seconds = status, message, error, None
+
+    def _set(self, job: Job, **changes: Any) -> None:
+        with self._lock:
+            for name, value in changes.items():
+                setattr(job, name, value)
 
     def process(self, job: Job) -> None:
         s = self.settings
-        job.status, job.message, job.progress = "encoding", "Reading video…", 0.0
+        if job.cancel.is_set():
+            return self._finish(job, "cancelled", "Cancelled")
         try:
             ffmpeg = find_tool("ffmpeg", s.ffmpeg_dir)
             ffprobe = find_tool("ffprobe", s.ffmpeg_dir)
@@ -151,54 +233,68 @@ class JobQueue:
             source = probe(ffprobe, job.path)
         except (ToolMissingError, ProbeError, R2Error) as e:
             return self._finish(job, "failed", "Failed", error=str(e))
+        if job.cancel.is_set():
+            return self._finish(job, "cancelled", "Cancelled")
 
         rungs = pick_rungs(source.width, source.height)
-        job.size = f"{source.width}x{source.height}"
-        job.duration = source.duration
-        job.qualities = [r.label for r in rungs]
-        job.gpu = job.use_gpu and nvenc_available(ffmpeg)
-        job.video_id = uuid.uuid4().hex
-        job.out_dir = s.work_dir / job.video_id
-        job.message = "Encoding"
+        video_id = uuid.uuid4().hex
+        out_dir = s.work_dir / video_id
+        self._set(
+            job,
+            size=f"{source.width}x{source.height}",
+            duration=source.duration,
+            qualities=[r.label for r in rungs],
+            gpu=job.use_gpu and nvenc_available(ffmpeg),
+            video_id=video_id,
+            out_dir=out_dir,
+            message="Encoding",
+        )
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / INCOMPLETE).touch()
         started = time.monotonic()
 
         def on_encode(fraction: float) -> None:
-            job.progress = fraction
             elapsed = time.monotonic() - started
-            job.eta_seconds = elapsed / fraction - elapsed if 0.02 < fraction < 1 else None
+            eta = elapsed / fraction - elapsed if 0.02 < fraction < 1 else None
+            self._set(job, progress=fraction, eta_seconds=eta)
 
         try:
-            command = build_command(ffmpeg, source, rungs, gpu=job.gpu)
+            command = build_command(ffmpeg, source, rungs, gpu=bool(job.gpu))
             encode(
                 command,
-                job.out_dir,
+                out_dir,
                 source.duration,
                 on_encode,
                 cancel=job.cancel,
                 expected_variants=len(rungs),
             )
         except CancelledError:
-            shutil.rmtree(job.out_dir, ignore_errors=True)
+            shutil.rmtree(out_dir, ignore_errors=True)
             return self._finish(job, "cancelled", "Cancelled")
         except EncodeError as e:
-            shutil.rmtree(job.out_dir, ignore_errors=True)
+            shutil.rmtree(out_dir, ignore_errors=True)
             return self._finish(job, "failed", "Encoding failed", error=str(e))
+        (out_dir / INCOMPLETE).unlink(missing_ok=True)
 
         if r2 is None:
-            job.progress = 1.0
+            self._set(job, progress=1.0)
             return self._finish(job, "done", "Encoded (not uploaded)")
 
-        job.status, job.message, job.progress, job.eta_seconds = "uploading", "Uploading", 0, None
+        self._set(job, status="uploading", message="Uploading", progress=0.0, eta_seconds=None)
 
         def on_upload(done: int, total: int) -> None:
-            job.progress = done / total
+            self._set(job, progress=done / total)
 
+        self._mark_pending(video_id)
         try:
-            job.url = r2.upload_video(job.out_dir, job.video_id, on_upload, cancel=job.cancel)
+            url = r2.upload_video(out_dir, video_id, on_upload, cancel=job.cancel)
         except CancelledError:
+            self._unmark_pending(video_id)
             return self._finish(job, "cancelled", "Cancelled (encoded files kept)")
         except R2Error as e:
+            self._unmark_pending(video_id)
             return self._finish(job, "failed", "Upload failed (encoded files kept)", error=str(e))
-        shutil.rmtree(job.out_dir, ignore_errors=True)
-        job.progress = 1.0
+        self._unmark_pending(video_id)
+        shutil.rmtree(out_dir, ignore_errors=True)
+        self._set(job, url=url, progress=1.0)
         self._finish(job, "done", "Ready")

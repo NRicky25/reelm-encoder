@@ -150,13 +150,21 @@ def encode(
 
     reader = threading.Thread(target=drain_stderr, daemon=True)
     reader.start()
+
+    def watch_cancel() -> None:  # stop ffmpeg right away, even if it's gone quiet
+        assert cancel is not None
+        while proc.poll() is None:
+            if cancel.wait(0.3):
+                proc.kill()
+                return
+
+    if cancel is not None:
+        threading.Thread(target=watch_cancel, daemon=True).start()
     assert proc.stdout is not None
     try:
         for line in proc.stdout:
-            if cancel is not None and cancel.is_set():
-                raise CancelledError
             fraction = parse_progress(line, duration)
-            if fraction is not None:
+            if fraction is not None and not (cancel is not None and cancel.is_set()):
                 on_progress(fraction)
         code = proc.wait()
     except BaseException:
@@ -164,6 +172,8 @@ def encode(
         proc.wait()
         raise
     reader.join(timeout=5)
+    if cancel is not None and cancel.is_set():
+        raise CancelledError
     master = out_dir / MASTER
     if code != 0 or not master.is_file():
         details = "\n".join(stderr_tail) or f"exit code {code}"
