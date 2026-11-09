@@ -27,11 +27,19 @@ episode.mp4 ──ffmpeg──▶ 1080p / 720p / 480p in ~6 s chunks ──uploa
 
 ## Use
 
+**Easiest:** double-click **`Reelm Encoder.cmd`**. A page opens in your browser:
+click **Choose videos…**, pick one or more files, and watch the progress. When a
+video is done, copy its stream URL and duration (buttons on the page). Keep the
+black window open while encoding; close it to stop.
+
+Or from a terminal:
+
 ```
-uv run reelm-encoder encode "D:\videos\episode 1.mp4"
+uv run reelm-encoder ui                                  # the same page
+uv run reelm-encoder encode "D:\videos\episode 1.mp4"    # one file, no page
 ```
 
-It prints the stream URL and duration. Then in the Reelm admin (`/admin`):
+Either way you get the stream URL and duration. Then in the Reelm admin (`/admin`):
 
 1. **Videos → New**: provider `external`, status `ready`, paste the URL, set the duration, Save.
 2. Open the episode (or movie), choose that video, set its **Duration**, Save.
