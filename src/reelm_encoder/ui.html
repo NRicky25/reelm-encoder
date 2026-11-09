@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reelm Encoder</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231c1d21'/%3E%3Ctext x='16' y='23' font-family='Arial' font-weight='900' font-size='20' text-anchor='middle' fill='%23b99ed8'%3Em%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #1c1d21; --surface: #24252b; --surface-2: #2c2d34; --line: #34353d;
+    --text: #ecebf1; --muted: #9a99a6; --faint: #6f6e7a;
+    --brand-a: #a99cf0; --brand-b: #c9a0b8;
+    --brand: linear-gradient(90deg, var(--brand-a), var(--brand-b));
+    --ok: #7fd1a8; --warn: #e8c37a; --bad: #ee8a8a;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 28px 24px 64px; }
+
+  header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 28px; }
+  .logo { font-weight: 900; font-size: 30px; letter-spacing: -1px; }
+  .logo b { background: var(--brand); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .logo small { font-size: 15px; font-weight: 600; letter-spacing: 0; color: var(--muted); margin-left: 8px; }
+  .chips { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+  .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); }
+
+  .notice { background: rgba(232,195,122,.08); border: 1px solid rgba(232,195,122,.3); color: #ead6ad;
+    padding: 12px 16px; border-radius: var(--radius); margin-bottom: 20px; font-size: 14px; }
+  .notice code { background: rgba(255,255,255,.06); padding: 1px 5px; border-radius: 4px; }
+
+  .start { background: var(--surface); border: 1px dashed #45464f; border-radius: 18px; padding: 32px 24px;
+    text-align: center; }
+  .primary { background: var(--brand); color: #1c1d21; border: 0; font-weight: 700; padding: 12px 26px;
+    border-radius: 999px; font-size: 16px; box-shadow: 0 6px 24px rgba(169,156,240,.25); transition: transform .12s ease; }
+  .primary:hover { transform: translateY(-1px); } .primary:active { transform: translateY(0); }
+  .primary:disabled { opacity: .5; cursor: default; transform: none; }
+  .hint { color: var(--muted); font-size: 13px; margin-top: 10px; }
+  .options { display: flex; justify-content: center; gap: 22px; margin-top: 18px; flex-wrap: wrap; }
+  .toggle { display: inline-flex; align-items: center; gap: 9px; color: var(--muted); font-size: 14px; cursor: pointer; user-select: none; }
+  .toggle input { appearance: none; width: 36px; height: 20px; border-radius: 999px; background: #44454e; position: relative;
+    cursor: pointer; transition: background .15s; margin: 0; }
+  .toggle input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%;
+    background: #fff; transition: transform .15s; }
+  .toggle input:checked { background: var(--brand-a); } .toggle input:checked::after { transform: translateX(16px); }
+  .toggle input:disabled { opacity: .4; cursor: default; }
+
+  h2 { font-size: 15px; color: var(--muted); font-weight: 600; margin: 34px 0 12px; display: flex; justify-content: space-between; }
+  .empty { color: var(--faint); text-align: center; padding: 22px; font-size: 14px; }
+  .job { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 12px; }
+  .job-top { display: flex; align-items: flex-start; gap: 12px; }
+  .job-name { font-weight: 600; word-break: break-all; }
+  .job-meta { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .pill { margin-left: auto; flex-shrink: 0; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px;
+    background: var(--surface-2); color: var(--muted); }
+  .pill.encoding, .pill.uploading { color: var(--brand-a); background: rgba(169,156,240,.12); }
+  .pill.done { color: var(--ok); background: rgba(127,209,168,.12); }
+  .pill.failed { color: var(--bad); background: rgba(238,138,138,.12); }
+  .bar { height: 6px; background: var(--surface-2); border-radius: 999px; overflow: hidden; margin: 14px 0 6px; }
+  .bar > i { display: block; height: 100%; background: var(--brand); border-radius: inherit; transition: width .4s ease; }
+  .progress-line { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+  .error { color: var(--bad); font-size: 13px; margin-top: 10px; white-space: pre-wrap; word-break: break-word;
+    max-height: 160px; overflow: auto; background: rgba(238,138,138,.06); padding: 8px 10px; border-radius: 8px; }
+  .result { margin-top: 14px; display: grid; gap: 8px; }
+  .field { display: flex; align-items: center; gap: 8px; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 10px; padding: 6px 6px 6px 12px; }
+  .field label { color: var(--faint); font-size: 12px; width: 64px; flex-shrink: 0; }
+  .field code { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .steps { color: var(--muted); font-size: 13px; margin: 4px 0 0; padding-left: 20px; }
+  .steps b { color: var(--text); font-weight: 600; }
+  .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .btn { background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 14px; font-size: 13px; }
+  .btn:hover { border-color: #4a4b55; }
+  .btn.small { padding: 4px 12px; font-size: 12px; flex-shrink: 0; }
+  .btn.danger:hover { color: var(--bad); border-color: rgba(238,138,138,.5); }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px); opacity: 0;
+    background: #383943; padding: 9px 16px; border-radius: 999px; font-size: 14px; transition: all .2s ease; pointer-events: none; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  @media (max-width: 560px) { .chips { margin-left: 0; } .field label { display: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">reel<b>m</b><small>Encoder</small></div>
+    <div class="chips" id="chips"><span class="chip"><span class="dot"></span>Checking…</span></div>
+  </header>
+
+  <div id="notice"></div>
+
+  <section class="start">
+    <button class="primary" id="choose">Choose videos…</button>
+    <div class="hint">Pick one or more files. They're converted one after another (1080p / 720p / 480p).</div>
+    <div class="options">
+      <label class="toggle"><input type="checkbox" id="opt-upload" checked> Upload to R2</label>
+      <label class="toggle"><input type="checkbox" id="opt-gpu" checked> Use NVIDIA GPU</label>
+    </div>
+  </section>
+
+  <h2><span>Videos</span><button class="btn small" id="clear" hidden>Clear finished</button></h2>
+  <div id="jobs"><div class="empty">Nothing here yet.</div></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const api = async (path, body) => {
+  const r = await fetch(path, body === undefined ? {} : {
+    method: "POST", headers: { "Content-Type": "application/json", "X-Reelm-Encoder": "1" },
+    body: JSON.stringify(body) });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail?.[0]?.msg ?? data.detail ?? `Error ${r.status}`);
+  return data;
+};
+const toast = (msg) => { const t = $("#toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 1800); };
+const clock = (s) => { s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, x = s % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(x).padStart(2, "0")}` : `${m}:${String(x).padStart(2, "0")}`; };
+
+let status = null;
+async function loadStatus(refresh = false) {
+  try { status = await api(`/api/status${refresh ? "?refresh=1" : ""}`); } catch { return; }
+  const chip = (ok, label, title = "") =>
+    `<span class="chip" title="${esc(title)}"><span class="dot ${ok}"></span>${esc(label)}</span>`;
+  const r2 = status.r2;
+  $("#chips").innerHTML =
+    chip(status.ffmpeg ? "ok" : "bad", status.ffmpeg ? "ffmpeg" : "ffmpeg missing", status.ffmpegError) +
+    chip(status.gpu ? "ok" : "warn", status.gpu ? "GPU encoding" : "CPU encoding") +
+    chip(r2.reachable ? "ok" : r2.configured ? "bad" : "warn",
+         r2.reachable ? `R2 · ${r2.bucket}` : r2.configured ? "R2 error" : "R2 not set up", r2.error ?? "");
+  const up = $("#opt-upload"), gpu = $("#opt-gpu");
+  up.disabled = !r2.reachable; if (!r2.reachable) up.checked = false;
+  gpu.disabled = !status.gpu; if (!status.gpu) gpu.checked = false;
+  $("#choose").disabled = !status.ffmpeg;
+  let notice = "";
+  if (!status.ffmpeg) notice = `ffmpeg wasn't found. Install it with <code>winget install Gyan.FFmpeg</code>, then reload.`;
+  else if (!r2.configured) notice = `Cloudflare R2 isn't set up yet, so videos are only encoded on this PC (in <code>${esc(status.workDir)}</code>). Add ${r2.missing.map((m) => `<code>${m}</code>`).join(", ")} to <code>reelm-encoder/.env</code> (see README), then restart.`;
+  else if (!r2.reachable) notice = `Can't reach your R2 bucket: ${esc(r2.error)}`;
+  $("#notice").innerHTML = notice ? `<div class="notice">${notice}</div>` : "";
+}
+
+const STATUS_LABEL = { queued: "Waiting", encoding: "Encoding", uploading: "Uploading", done: "Done", failed: "Failed", cancelled: "Cancelled" };
+function jobCard(j) {
+  const running = j.status === "encoding" || j.status === "uploading";
+  const meta = [j.size, j.duration != null && clock(j.duration), j.qualities.length && j.qualities.join(" / "),
+    j.gpu != null && (j.gpu ? "GPU" : "CPU"), !j.upload && "encode only"].filter(Boolean).join(" · ");
+  let body = "";
+  if (running || j.status === "queued") {
+    const pct = Math.round(j.progress * 100);
+    body = `<div class="bar"><i style="width:${pct}%"></i></div>
+      <div class="progress-line"><span>${esc(j.message)}${running ? ` · ${pct}%` : ""}</span>
+      <span>${j.eta != null ? `~${clock(j.eta)} left` : ""}</span></div>`;
+  }
+  if (j.error) body += `<div class="error">${esc(j.error)}</div>`;
+  if (j.status === "done" && j.url) {
+    body += `<div class="result">
+      <div class="field"><label>Stream URL</label><code title="${esc(j.url)}">${esc(j.url)}</code>
+        <button class="btn small" data-copy="${esc(j.url)}">Copy</button></div>
+      <div class="field"><label>Duration</label><code>${j.duration} seconds</code>
+        <button class="btn small" data-copy="${j.duration}">Copy</button></div>
+      <ol class="steps">
+        <li>Admin → <b>Videos → New</b>: provider <b>external</b>, status <b>ready</b>, paste the URL and duration, Save.</li>
+        <li>Open the episode or movie, choose that video, set <b>Duration</b> to ${j.duration}, Save.</li>
+      </ol></div>`;
+  } else if (j.status === "done") {
+    body += `<div class="hint" style="text-align:left">Encoded on this PC only (not uploaded).</div>`;
+  }
+  const acts = [];
+  if (running || j.status === "queued") acts.push(`<button class="btn" data-act="cancel">Cancel</button>`);
+  if (j.folder) acts.push(`<button class="btn" data-act="open-folder">Open folder</button>`);
+  if (j.status === "done" && j.url) acts.push(`<button class="btn danger" data-act="delete">Delete from R2</button>`);
+  if (!running && j.status !== "queued") acts.push(`<button class="btn" data-act="remove">Remove from list</button>`);
+  return `<div class="job" data-id="${j.id}" data-video="${esc(j.videoId)}">
+    <div class="job-top"><div><div class="job-name">${esc(j.name)}</div><div class="job-meta">${esc(meta) || "&nbsp;"}</div></div>
+    <span class="pill ${j.status}">${STATUS_LABEL[j.status]}</span></div>
+    ${body}${acts.length ? `<div class="actions">${acts.join("")}</div>` : ""}</div>`;
+}
+
+let jobs = [], timer;
+async function loadJobs() {
+  try { jobs = await api("/api/jobs"); } catch { /* server stopped */ }
+  const box = $("#jobs");
+  const html = jobs.length ? jobs.map(jobCard).join("") : `<div class="empty">Nothing here yet.</div>`;
+  if (box._html !== html) { box.innerHTML = html; box._html = html; }
+  $("#clear").hidden = !jobs.some((j) => ["done", "failed", "cancelled"].includes(j.status));
+  const active = jobs.some((j) => ["queued", "encoding", "uploading"].includes(j.status));
+  clearTimeout(timer); timer = setTimeout(loadJobs, active ? 700 : 4000);
+  document.title = active ? `Encoding… · Reelm Encoder` : "Reelm Encoder";
+}
+
+$("#choose").onclick = async () => {
+  const btn = $("#choose"); btn.disabled = true; btn.textContent = "Choose in the window that opened…";
+  try {
+    const { paths } = await api("/api/pick", {});
+    if (paths.length) {
+      await api("/api/jobs", { paths, upload: $("#opt-upload").checked, gpu: $("#opt-gpu").checked });
+      toast(`${paths.length} video${paths.length > 1 ? "s" : ""} added`);
+      loadJobs();
+    }
+  } catch (e) { toast(e.message); }
+  btn.disabled = false; btn.textContent = "Choose videos…";
+};
+
+$("#jobs").onclick = async (e) => {
+  const copy = e.target.closest("[data-copy]");
+  if (copy) { await navigator.clipboard.writeText(copy.dataset.copy); toast("Copied"); return; }
+  const act = e.target.closest("[data-act]")?.dataset.act; if (!act) return;
+  const card = e.target.closest(".job"), id = card.dataset.id;
+  try {
+    if (act === "delete") {
+      if (!confirm("Delete this video's files from R2? Anything still using its link will stop playing.")) return;
+      const { deleted } = await api("/api/delete", { video_id: card.dataset.video });
+      toast(`Deleted ${deleted} files from R2`);
+      await api(`/api/jobs/${id}/remove`, {});
+    } else {
+      await api(`/api/jobs/${id}/${act}`, {});
+    }
+  } catch (err) { toast(err.message); }
+  loadJobs();
+};
+
+$("#clear").onclick = async () => {
+  for (const j of jobs.filter((j) => ["done", "failed", "cancelled"].includes(j.status)))
+    await api(`/api/jobs/${j.id}/remove`, {}).catch(() => {});
+  loadJobs();
+};
+
+loadStatus(); loadJobs();
+</script>
+</body>
+</html>

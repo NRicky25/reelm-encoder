@@ -17,7 +17,7 @@ from reelm_encoder.config import Settings, get_settings
 from reelm_encoder.encode import EncodeError, build_command, encode
 from reelm_encoder.ladder import pick_rungs
 from reelm_encoder.probe import ProbeError, probe
-from reelm_encoder.r2 import R2, R2Error
+from reelm_encoder.r2 import R2, R2Error, parse_video_id
 from reelm_encoder.tools import ToolMissingError, find_tool, nvenc_available
 
 
@@ -90,7 +90,8 @@ def cmd_encode(args: argparse.Namespace, settings: Settings) -> int:
         print(f"\rEncoding  {_bar(fraction)} {fraction:6.1%}{eta}   ", end="", flush=True)
 
     try:
-        encode(build_command(ffmpeg, source, rungs, gpu=gpu), out_dir, source.duration, show)
+        command = build_command(ffmpeg, source, rungs, gpu=gpu)
+        encode(command, out_dir, source.duration, show, expected_variants=len(rungs))
     except (EncodeError, KeyboardInterrupt) as e:
         print(f"\n✗ {'Cancelled' if isinstance(e, KeyboardInterrupt) else e}", file=sys.stderr)
         shutil.rmtree(out_dir, ignore_errors=True)
@@ -126,13 +127,18 @@ def cmd_encode(args: argparse.Namespace, settings: Settings) -> int:
 
 
 def cmd_delete(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        video_id = parse_video_id(args.video_id)
+    except R2Error as e:
+        print(f"✗ {e}", file=sys.stderr)
+        return 1
     if not args.yes:
-        answer = input(f"Delete every file of video {args.video_id} from R2? [y/N] ")
+        answer = input(f"Delete every file of video {video_id} from R2? [y/N] ")
         if answer.strip().lower() not in ("y", "yes"):
             print("Nothing deleted.")
             return 0
     try:
-        count = R2.from_settings(settings).delete_video(args.video_id)
+        count = R2.from_settings(settings).delete_video(video_id)
     except R2Error as e:
         print(f"✗ {e}", file=sys.stderr)
         return 1
@@ -147,20 +153,31 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="reelm-encoder", description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("check", help="check ffmpeg, GPU encoding and R2 access")
+    u = sub.add_parser("ui", help="open the point-and-click interface in your browser")
+    u.add_argument("--port", type=int, default=8800)
+    u.add_argument("--no-browser", action="store_true", help="don't open the browser")
     p = sub.add_parser("encode", help="encode a video to HLS and upload it to R2")
     p.add_argument("input", help="video file (mp4, mkv, mov, ...)")
     p.add_argument("--cpu", action="store_true", help="don't use the NVIDIA GPU")
     p.add_argument("--no-upload", action="store_true", help="only encode, don't upload")
     p.add_argument("--keep", action="store_true", help="keep the encoded files after uploading")
-    p.add_argument("--out", help="folder for encoded files (default: ./output)")
+    p.add_argument("--out", help="folder for encoded files (default: <project>/output)")
     d = sub.add_parser("delete", help="delete a video's files from R2")
-    d.add_argument("video_id")
+    d.add_argument("video_id", help="the video id, or its stream URL")
     d.add_argument("-y", "--yes", action="store_true", help="don't ask for confirmation")
 
     args = parser.parse_args(argv)
     settings = get_settings()
-    if args.command == "check":
-        return cmd_check(settings)
-    if args.command == "encode":
-        return cmd_encode(args, settings)
-    return cmd_delete(args, settings)
+    try:
+        if args.command == "check":
+            return cmd_check(settings)
+        if args.command == "ui":
+            from reelm_encoder.ui import serve
+
+            return serve(args.port, open_browser=not args.no_browser)
+        if args.command == "encode":
+            return cmd_encode(args, settings)
+        return cmd_delete(args, settings)
+    except KeyboardInterrupt:
+        print("\nStopped.", file=sys.stderr)
+        return 130

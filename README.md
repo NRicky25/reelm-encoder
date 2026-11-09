@@ -39,9 +39,9 @@ It prints the stream URL and duration. Then in the Reelm admin (`/admin`):
 Other commands:
 
 ```
-uv run reelm-encoder encode clip.mp4 --no-upload --keep   # only encode, keep files in ./output
+uv run reelm-encoder encode clip.mp4 --no-upload --keep   # only encode, keep files in reelm-encoder/output
 uv run reelm-encoder encode clip.mp4 --cpu                # don't use the GPU
-uv run reelm-encoder delete <video-id>                    # remove a video from R2
+uv run reelm-encoder delete <video-id or stream URL>      # remove a video from R2
 ```
 
 Each video is stored under `videos/<video-id>/` in the bucket. Replacing or
@@ -50,7 +50,10 @@ deleting an episode in the admin does **not** remove its R2 files yet: run
 
 ## Notes
 
-- Never upscales: a 720p source gives 720p + 480p. Wide (cinema) videos keep their shape.
+- Never upscales: a 720p source gives 720p + 480p. Wide (cinema) and portrait videos keep their shape.
+- HDR videos are converted to normal (SDR) colour; surround sound is mixed to stereo; with
+  several audio tracks, the default one is used.
+- The web page only answers on this PC (127.0.0.1) and ignores requests from other websites.
 - Files are cached "forever" by browsers/CDN; that's safe because every upload gets a new id.
 - Only upload videos you have the rights to stream.
 

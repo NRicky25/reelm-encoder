@@ -9,7 +9,9 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "boto3>=1.43.127",
+    "fastapi>=0.162.2",
     "pydantic-settings>=2.16.2",
+    "uvicorn>=0.54.0",
 ]
 
 [project.scripts]
@@ -21,6 +23,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
     "pytest>=9.2.0",
     "ruff>=0.17.4",
 ]
@@ -33,3 +36,4 @@ select = ["E", "F", "I", "B", "UP", "N", "RUF"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
