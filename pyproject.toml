@@ -1,0 +1,35 @@
+[project]
+name = "reelm-encoder"
+version = "0.1.0"
+description = "Encode videos to HLS and upload them to Cloudflare R2 for Reelm"
+readme = "README.md"
+authors = [
+    { name = "N3-Ricky", email = "165741930+NRicky25@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "boto3>=1.43.127",
+    "pydantic-settings>=2.16.2",
+]
+
+[project.scripts]
+reelm-encoder = "reelm_encoder:main"
+
+[build-system]
+requires = ["uv_build>=0.11.3,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "ruff>=0.17.4",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "RUF"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
