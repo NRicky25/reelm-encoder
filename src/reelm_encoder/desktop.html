@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reelm Encoder</title>
+<style>
+  :root {
+    --bg: #f6f5f9;
+    --surface: #ffffff;
+    --surface-2: #f0eef6;
+    --border: rgba(30, 20, 50, .08);
+    --border-strong: rgba(30, 20, 50, .14);
+    --text: #18161f;
+    --muted: #6c6880;
+    --faint: #9d99ae;
+    --accent-1: #7c6cf0;
+    --accent-2: #b9789f;
+    --accent: #6d5ce6;
+    --accent-soft: rgba(124, 108, 240, .12);
+    --ok: #059669;
+    --err: #dc2626;
+    --warn: #b45309;
+    --track: rgba(30, 20, 50, .08);
+    --shadow: 0 1px 2px rgba(30, 20, 50, .04), 0 8px 24px rgba(30, 20, 50, .06);
+    --radius: 16px;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1d21;
+      --surface: #24252b;
+      --surface-2: #2a2b31;
+      --border: rgba(255, 255, 255, .06);
+      --border-strong: rgba(255, 255, 255, .12);
+      --text: #e6e6e9;
+      --muted: #9a9ba3;
+      --faint: #6f707a;
+      --accent: #a99cf0;
+      --accent-soft: rgba(169, 156, 240, .14);
+      --ok: #34d399;
+      --err: #f87171;
+      --warn: #fbbf24;
+      --track: rgba(255, 255, 255, .07);
+      --shadow: 0 1px 2px rgba(0, 0, 0, .25), 0 12px 32px rgba(0, 0, 0, .2);
+      color-scheme: dark;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased; user-select: none; overflow: hidden;
+  }
+  button { font: inherit; color: inherit; }
+  svg { display: block; }
+  code { font: 12.5px "Cascadia Mono", Consolas, monospace; }
+
+  .app { height: 100%; display: grid; grid-template-rows: auto auto auto auto 1fr; gap: 16px; padding: 24px 28px 20px; max-width: 1100px; margin: 0 auto; }
+
+  .top { display: flex; align-items: center; gap: 14px; }
+  .logo { width: 44px; height: 44px; filter: drop-shadow(0 6px 14px rgba(124, 108, 240, .35)); }
+  .brand { margin-right: auto; }
+  .brand h1 { margin: 0; font: 650 20px/1.2 "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; letter-spacing: -.01em; }
+  .brand p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+  .engine {
+    display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--border); color: var(--muted); font-size: 12.5px; font-weight: 550;
+  }
+  .engine i { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+  .engine[data-state="ok"] i { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 20%, transparent); }
+  .engine[data-state="warn"] i { background: var(--warn); }
+  .engine[data-state="bad"] i { background: var(--err); }
+
+  .notice { padding: 12px 16px; border-radius: 12px; background: color-mix(in srgb, var(--err) 12%, var(--surface)); color: var(--text); font-size: 13.5px; user-select: text; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+
+  .drop { display: flex; align-items: center; gap: 18px; padding: 22px 24px; border: 1.5px dashed var(--border-strong); transition: border-color .15s, background .15s; }
+  .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+  .drop-art { width: 52px; height: 52px; flex: none; border-radius: 14px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
+  .drop-art svg { width: 24px; height: 24px; }
+  .drop-text { margin-right: auto; }
+  .drop-text strong { display: block; font-size: 15.5px; font-weight: 650; }
+  .drop-text span { color: var(--muted); font-size: 13px; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 14px; border-radius: 10px;
+    border: 1px solid var(--border-strong); background: var(--surface-2); cursor: pointer; font-weight: 550; font-size: 13.5px; white-space: nowrap;
+    transition: transform .1s, border-color .15s, filter .15s;
+  }
+  .btn:hover { border-color: var(--faint); }
+  .btn:active { transform: scale(.97); }
+  .btn:disabled { opacity: .45; pointer-events: none; }
+  .btn svg { width: 16px; height: 16px; flex: none; }
+  .btn.primary { height: 42px; padding: 0 22px; border: 0; color: #fff; background: linear-gradient(135deg, var(--accent-1), var(--accent-2)); box-shadow: 0 6px 18px rgba(124, 108, 240, .35); }
+  .btn.primary:hover { filter: brightness(1.06); }
+  .icon-btn { width: 32px; height: 32px; padding: 0; justify-content: center; border: 0; background: transparent; color: var(--muted); border-radius: 8px; }
+  .icon-btn:hover { background: var(--surface-2); color: var(--text); }
+
+  .options { display: grid; grid-template-columns: 1fr auto; gap: 16px; }
+  .option { padding: 12px 14px; display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .option-label { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+  .folder-icon { width: 36px; height: 36px; flex: none; border-radius: 10px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
+  .folder-icon svg { width: 18px; height: 18px; }
+  .folder-text { min-width: 0; flex: 1; }
+  .folder-path { font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
+  .segmented { display: flex; padding: 3px; gap: 2px; border-radius: 10px; background: var(--surface-2); }
+  .segmented button { border: 0; background: transparent; height: 30px; padding: 0 12px; border-radius: 8px; cursor: pointer; color: var(--muted); font-weight: 550; font-size: 13px; transition: background .15s, color .15s; }
+  .segmented button:hover { color: var(--text); }
+  .segmented button:disabled { opacity: .4; pointer-events: none; }
+  .segmented button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, .15); }
+
+  .list { min-height: 0; display: flex; flex-direction: column; }
+  .list-head { display: flex; align-items: baseline; gap: 10px; padding: 4px 4px 10px; }
+  .list-head h2 { margin: 0; font-size: 15px; font-weight: 650; }
+  .list-head .count { color: var(--faint); font-size: 13px; margin-right: auto; }
+  .link { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 13px; padding: 4px 6px; border-radius: 6px; }
+  .link:hover { color: var(--text); background: var(--surface-2); }
+
+  .items { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 2px 4px 4px 2px; }
+  .items::-webkit-scrollbar { width: 10px; }
+  .items::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 10px; border: 3px solid var(--bg); }
+
+  .item { padding: 10px; animation: in .25s ease-out; }
+  @keyframes in { from { opacity: 0; transform: translateY(6px); } }
+  .row { display: grid; grid-template-columns: 136px 1fr auto; gap: 16px; align-items: center; }
+  .thumb { width: 136px; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; background: var(--surface-2); position: relative; display: grid; place-items: center; color: var(--faint); }
+  .thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .thumb svg { width: 22px; height: 22px; }
+  .duration { position: absolute; right: 6px; bottom: 6px; padding: 1px 6px; border-radius: 5px; background: rgba(0, 0, 0, .72); color: #fff; font-size: 11.5px; font-weight: 600; }
+  .body { min-width: 0; }
+  .title { font-weight: 600; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta { color: var(--muted); font-size: 12.5px; margin-top: 2px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .tag { padding: 0 7px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 11.5px; line-height: 20px; }
+  .bar { height: 6px; border-radius: 6px; background: var(--track); margin-top: 10px; overflow: hidden; }
+  .bar span { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--accent-1), var(--accent-2)); transition: width .4s ease; }
+  .status { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 12.5px; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .status svg { width: 14px; height: 14px; flex: none; }
+  .item[data-status="queued"] .bar span { width: 0 !important; }
+  .item[data-status="done"] .bar span { width: 100% !important; background: var(--ok); }
+  .item[data-status="done"] .status { color: var(--ok); }
+  .item[data-status="failed"] .bar span { width: 100% !important; background: var(--err); }
+  .item[data-status="failed"] .status { color: var(--err); user-select: text; }
+  .item[data-status="cancelled"] { opacity: .6; }
+  .item[data-status="cancelled"] .bar span { width: 0 !important; }
+  .actions { display: flex; gap: 4px; }
+  .actions .btn { height: 32px; padding: 0 12px; font-size: 13px; }
+  .actions .icon-btn { width: 32px; padding: 0; }
+
+  .result { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: var(--surface-2); display: grid; gap: 8px; user-select: text; }
+  .field { display: grid; grid-template-columns: 92px 1fr auto; gap: 10px; align-items: center; }
+  .field label { color: var(--muted); font-size: 12px; font-weight: 600; }
+  .field code { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .field .btn { height: 28px; padding: 0 10px; font-size: 12.5px; }
+  .steps { margin: 4px 0 0; padding-left: 20px; color: var(--muted); font-size: 12.5px; }
+  .steps b { color: var(--text); font-weight: 600; }
+
+  .empty { flex: 1; display: grid; place-items: center; text-align: center; color: var(--muted); padding: 28px; border: 1.5px dashed var(--border-strong); border-radius: var(--radius); }
+  .empty strong { display: block; color: var(--text); font-size: 15px; margin-bottom: 4px; }
+
+  .toast { position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 20px); background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 10px; font-size: 13px; font-weight: 550; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  @media (max-width: 760px) {
+    .options { grid-template-columns: 1fr; }
+    .row { grid-template-columns: 96px 1fr; }
+    .thumb { width: 96px; }
+    .actions { grid-column: 1 / -1; justify-content: flex-end; }
+  }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <svg class="logo" viewBox="0 0 100 100" aria-hidden="true">
+      <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7c6cf0"/><stop offset="1" stop-color="#b9789f"/></linearGradient></defs>
+      <rect width="100" height="100" rx="24" fill="url(#lg)"/>
+      <path d="M50 22 L75 35 L50 48 L25 35 Z" fill="#fff" stroke="#fff" stroke-width="7" stroke-linejoin="round"/>
+      <path d="M25 50 L50 63 L75 50" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M25 63.5 L50 76.5 L75 63.5" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div class="brand">
+      <h1>Reelm Encoder</h1>
+      <p>Turns videos into 1080p / 720p / 480p streaming files for Reelm</p>
+    </div>
+    <div class="engine" id="engine" data-state="idle" title=""><i></i><span>Checking…</span></div>
+  </header>
+
+  <div id="notice" hidden></div>
+
+  <section class="card drop" id="drop">
+    <div class="drop-art">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 8 4-8 4-8-4z"/><path d="m4 12 8 4 8-4"/><path d="m4 16.5 8 4 8-4"/></svg>
+    </div>
+    <div class="drop-text">
+      <strong>Drop videos here</strong>
+      <span>Each video gets its own folder, ready to upload to R2.</span>
+    </div>
+    <button class="btn primary" id="choose">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+      Choose videos
+    </button>
+  </section>
+
+  <section class="options">
+    <div class="card option">
+      <div class="folder-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+      </div>
+      <div class="folder-text">
+        <div class="option-label">Save to</div>
+        <div class="folder-path" id="dest">&nbsp;</div>
+      </div>
+      <button class="btn" id="change">Change</button>
+      <button class="btn icon-btn" id="open-dest" title="Open folder">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+      </button>
+    </div>
+    <div class="card option">
+      <div class="option-label">Encode on</div>
+      <div class="segmented" id="device" role="group" aria-label="Encode with">
+        <button data-v="gpu" title="NVIDIA graphics card: much faster">Graphics card</button>
+        <button data-v="cpu" title="Processor: slower, works on any PC">Processor</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="list">
+    <div class="list-head">
+      <h2>Videos</h2>
+      <span class="count" id="count"></span>
+      <button class="link" id="clear" hidden>Clear finished</button>
+    </div>
+    <div class="items" id="items" hidden></div>
+    <div class="empty" id="empty">
+      <div><strong>Nothing here yet</strong>Add a video above. On your graphics card a 20-minute video takes a few minutes.</div>
+    </div>
+  </section>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const FINISHED = ["done", "failed", "cancelled"];
+const ACTIVE = ["queued", "encoding"];
+let api = null;
+let state = { gpu: false, ffmpeg: false, publicUrl: "" };
+let jobs = [];
+const cards = new Map();
+
+const ICON = {
+  folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>',
+  x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+  retry: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>',
+  alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></svg>',
+  video: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="m10 9 5 3-5 3z" fill="currentColor"/></svg>',
+};
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const clock = (s) => { s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, x = s % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(x).padStart(2, "0")}` : `${m}:${String(x).padStart(2, "0")}`; };
+const folderName = (p) => (p || "").split(/[\\/]/).pop();
+
+function toast(text) {
+  const t = $("#toast");
+  t.textContent = text;
+  t.classList.add("show");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => t.classList.remove("show"), 2400);
+}
+
+function select(groupSel, value) {
+  for (const b of document.querySelectorAll(groupSel + " button")) b.setAttribute("aria-pressed", String(b.dataset.v === value));
+}
+
+function setDest(path) {
+  $("#dest").textContent = "‎" + path + "‎";
+  $("#dest").title = path;
+}
+
+function showStatus(s) {
+  state = s;
+  const e = $("#engine");
+  if (!s.ffmpeg) { e.dataset.state = "bad"; e.querySelector("span").textContent = "ffmpeg missing"; }
+  else if (s.gpu) { e.dataset.state = "ok"; e.querySelector("span").textContent = s.gpuName ? `Ready · ${s.gpuName}` : "Ready · graphics card"; }
+  else { e.dataset.state = "warn"; e.querySelector("span").textContent = "Ready · processor only"; }
+  e.title = s.ffmpegError || "";
+  const n = $("#notice");
+  n.hidden = s.ffmpeg;
+  n.innerHTML = s.ffmpeg ? "" : `<div class="notice">ffmpeg wasn't found. Install it with <code>winget install Gyan.FFmpeg</code>, then reopen Reelm Encoder.</div>`;
+  $("#choose").disabled = !s.ffmpeg;
+  $('#device button[data-v="gpu"]').disabled = !s.gpu;
+  if (!s.gpu) select("#device", "cpu");
+}
+
+// ---------- job cards ----------
+function shape(j) { return [j.status, j.error, j.folder, j.size, j.duration, j.qualities.join(), j.gpu, !!j.thumb].join("|"); }
+
+function cardHtml(j) {
+  const running = j.status === "encoding";
+  const tags = j.qualities.map((q) => `<span class="tag">${esc(q)}</span>`).join("");
+  const meta = [j.size, j.gpu == null ? "" : j.gpu ? "graphics card" : "processor"].filter(Boolean).map(esc).join(" · ");
+  let status = "";
+  if (j.status === "done") status = ICON.check + `<span>Saved to <b>${esc(folderName(j.folder))}</b></span>`;
+  else if (j.status === "failed") status = ICON.alert + `<span>${esc(j.error || "Failed")}</span>`;
+  else status = `<span class="st"></span>`;
+
+  let result = "";
+  if (j.status === "done" && j.folder) {
+    const name = folderName(j.folder);
+    const link = state.publicUrl ? `${state.publicUrl.replace(/\/$/, "")}/videos/${name}/master.m3u8` : "";
+    result = `<div class="result">
+      ${link ? `<div class="field"><label>Link after upload</label><code title="${esc(link)}">${esc(link)}</code><button class="btn" data-copy="${esc(link)}">Copy</button></div>` : ""}
+      <div class="field"><label>Duration</label><code>${esc(j.duration)} seconds</code><button class="btn" data-copy="${esc(j.duration)}">Copy</button></div>
+      <ol class="steps">
+        <li>Upload the folder <b>${esc(name)}</b> into your R2 bucket under <b>videos/</b>${link ? "" : " (your link is then <b>&lt;bucket URL&gt;/videos/" + esc(name) + "/master.m3u8</b>)"}.</li>
+        <li>Admin → <b>Videos → New</b>: provider <b>external</b>, status <b>ready</b>, paste the link and duration, Save.</li>
+      </ol></div>`;
+  }
+
+  const acts = [];
+  if (j.status === "done") acts.push(`<button class="btn" data-act="open">${ICON.folder}Open folder</button>`);
+  if (j.status === "failed" || j.status === "cancelled") acts.push(`<button class="btn" data-act="retry">${ICON.retry}Retry</button>`);
+  if (FINISHED.includes(j.status)) acts.push(`<button class="btn icon-btn" data-act="remove" title="Remove from list">${ICON.x}</button>`);
+  else acts.push(`<button class="btn icon-btn" data-act="cancel" title="Cancel">${ICON.x}</button>`);
+
+  return `<article class="card item" data-id="${esc(j.id)}" data-status="${esc(j.status)}">
+    <div class="row">
+      <div class="thumb">${j.thumb ? `<img src="${j.thumb}" alt="">` : ICON.video}${j.duration ? `<span class="duration">${clock(j.duration)}</span>` : ""}</div>
+      <div class="body">
+        <div class="title" title="${esc(j.path)}">${esc(j.name)}</div>
+        <div class="meta">${tags}${meta ? `<span>${meta}</span>` : ""}</div>
+        <div class="bar"><span></span></div>
+        <div class="status">${status}</div>
+      </div>
+      <div class="actions">${acts.join("")}</div>
+    </div>${result}</article>`;
+}
+
+function liveText(j) {
+  if (j.status === "queued") return "Waiting…";
+  if (j.status === "cancelled") return j.message || "Cancelled";
+  if (j.status === "encoding") {
+    const parts = [j.message === "Encoding" ? `Encoding · ${Math.round(j.progress * 100)}%` : j.message];
+    if (j.eta != null) parts.push(`about ${clock(j.eta)} left`);
+    return parts.join("  ·  ");
+  }
+  return "";
+}
+
+function render() {
+  const box = $("#items");
+  const seen = new Set();
+  let prev = null;
+  for (const j of jobs) {
+    seen.add(j.id);
+    let el = cards.get(j.id);
+    if (!el || el._shape !== shape(j)) {
+      const tmp = document.createElement("div");
+      tmp.innerHTML = cardHtml(j);
+      const fresh = tmp.firstElementChild;
+      if (el) el.replaceWith(fresh); else box.append(fresh);
+      if (el && j.status === "done" && el.dataset.status !== "done") toast("Encoded: " + j.name);
+      el = fresh;
+      el._shape = shape(j);
+      cards.set(j.id, el);
+    }
+    const bar = el.querySelector(".bar span");
+    if (j.status === "encoding") bar.style.width = (j.progress * 100).toFixed(1) + "%";
+    const st = el.querySelector(".st");
+    if (st) st.textContent = liveText(j);
+    if (prev ? prev.nextElementSibling !== el : box.firstElementChild !== el) prev ? prev.after(el) : box.prepend(el);
+    prev = el;
+  }
+  for (const [id, el] of cards) if (!seen.has(id)) { el.remove(); cards.delete(id); }
+
+  $("#empty").hidden = jobs.length > 0;
+  box.hidden = jobs.length === 0;
+  const active = jobs.filter((j) => ACTIVE.includes(j.status)).length;
+  const done = jobs.filter((j) => j.status === "done").length;
+  $("#count").textContent = jobs.length ? (active ? `${active} in progress · ${done} done` : `${done} done`) : "";
+  $("#clear").hidden = !jobs.some((j) => FINISHED.includes(j.status));
+}
+
+let timer;
+async function poll() {
+  try { jobs = await api.jobs(); render(); } catch {}
+  clearTimeout(timer);
+  timer = setTimeout(poll, jobs.some((j) => ACTIVE.includes(j.status)) ? 600 : 2000);
+}
+
+async function addPaths(paths) {
+  if (!paths || !paths.length) return;
+  const res = await api.add(paths);
+  if (res.error) { toast(res.error); return; }
+  if (res.skipped.length) toast(`Skipped ${res.skipped.length} file(s) that aren't videos`);
+  else toast(`${res.added} video${res.added === 1 ? "" : "s"} added`);
+  poll();
+  setTimeout(() => $("#items").lastElementChild?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 150);
+}
+window.addDropped = addPaths;
+
+async function init() {
+  api = window.pywebview.api;
+  const s = await api.init();
+  setDest(s.destination);
+  select("#device", s.device);
+  showStatus(s.status);
+  poll();
+
+  $("#choose").onclick = async () => addPaths(await api.choose_files());
+  $("#change").onclick = async () => { const p = await api.choose_folder(); if (p) { setDest(p); toast("Encoded videos will be saved here"); } };
+  $("#open-dest").onclick = () => api.open_folder(null);
+  for (const b of document.querySelectorAll("#device button")) {
+    b.onclick = () => { select("#device", b.dataset.v); api.set_device(b.dataset.v); };
+  }
+  $("#clear").onclick = async () => { for (const j of jobs.filter((j) => FINISHED.includes(j.status))) await api.remove(j.id); poll(); };
+
+  $("#items").onclick = async (e) => {
+    const copy = e.target.closest("[data-copy]");
+    if (copy) { await api.copy(copy.dataset.copy); toast("Copied"); return; }
+    const act = e.target.closest("[data-act]")?.dataset.act;
+    if (!act) return;
+    const id = e.target.closest(".item").dataset.id;
+    const job = jobs.find((j) => j.id === id);
+    if (act === "cancel") await api.cancel(id);
+    else if (act === "remove") await api.remove(id);
+    else if (act === "open") await api.open_folder(job.folder);
+    else if (act === "retry") { await api.remove(id); await addPaths([job.path]); }
+    poll();
+  };
+
+  const drop = $("#drop");
+  let depth = 0;
+  window.addEventListener("dragenter", (e) => { e.preventDefault(); depth++; drop.classList.add("over"); });
+  window.addEventListener("dragleave", () => { if (--depth <= 0) { depth = 0; drop.classList.remove("over"); } });
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("drop", (e) => { e.preventDefault(); depth = 0; drop.classList.remove("over"); });
+}
+
+window.addEventListener("pywebviewready", init);
+</script>
+</body>
+</html>

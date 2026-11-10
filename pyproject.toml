@@ -1,17 +1,16 @@
 [project]
 name = "reelm-encoder"
 version = "0.1.0"
-description = "Encode videos to HLS and upload them to Cloudflare R2 for Reelm"
+description = "Encode videos to HLS (1080p / 720p / 480p) for Reelm"
 readme = "README.md"
 authors = [
     { name = "N3-Ricky", email = "165741930+NRicky25@users.noreply.github.com" }
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "boto3>=1.43.127",
-    "fastapi>=0.162.2",
+    "darkdetect>=0.8.0",
     "pydantic-settings>=2.16.2",
-    "uvicorn>=0.54.0",
+    "pywebview>=6.2.1",
 ]
 
 [project.scripts]
@@ -23,7 +22,6 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",
     "pytest>=9.2.0",
     "ruff>=0.17.4",
 ]

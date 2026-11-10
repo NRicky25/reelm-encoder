@@ -34,7 +34,7 @@ class EncodeError(RuntimeError):
 
 
 class CancelledError(Exception):
-    """The user cancelled an encode or upload."""
+    """The user cancelled an encode."""
 
 
 def build_command(
@@ -183,7 +183,7 @@ def encode(
 
 
 def check_output(master: Path, expected_variants: int | None) -> None:
-    """ffmpeg can "succeed" yet leave out qualities (e.g. a tiny clip): never upload that."""
+    """ffmpeg can "succeed" yet leave out qualities (e.g. a tiny clip): never accept that."""
     text = master.read_text(encoding="utf-8", errors="replace")
     variants = [
         line.strip() for line in text.splitlines() if line.strip() and not line.startswith("#")

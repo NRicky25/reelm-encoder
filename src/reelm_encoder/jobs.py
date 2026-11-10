@@ -1,13 +1,15 @@
-"""A queue of encode (+ upload) jobs, processed one at a time in a background thread.
+"""A queue of encode jobs, processed one at a time in a background thread.
 
-Used by the web interface; the command line runs the same steps directly.
+Used by the desktop window; the command line runs the same steps directly.
+Each video is encoded into its own new folder: <out_root>/<video-name>-<code>/.
 """
 
+import re
 import shutil
 import threading
 import time
+import unicodedata
 import uuid
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -16,21 +18,65 @@ from reelm_encoder.config import Settings
 from reelm_encoder.encode import CancelledError, EncodeError, build_command, encode
 from reelm_encoder.ladder import pick_rungs
 from reelm_encoder.probe import ProbeError, probe
-from reelm_encoder.r2 import R2, R2Error
 from reelm_encoder.tools import ToolMissingError, find_tool, nvenc_available
 
-Status = Literal["queued", "encoding", "uploading", "done", "failed", "cancelled"]
+Status = Literal["queued", "encoding", "done", "failed", "cancelled"]
 FINISHED: set[str] = {"done", "failed", "cancelled"}
+INCOMPLETE = ".incomplete"  # marker file: this folder's encode never finished
+
+
+def folder_slug(name: str) -> str:
+    """A folder name that's safe inside a link: "Episode 1 [HD]" -> "episode-1-hd"."""
+    ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    slug = re.sub(r"[^a-z0-9]+", "-", ascii_name.lower()).strip("-")
+    return slug[:60].rstrip("-") or "video"
+
+
+def new_output_dir(root: Path, name: str) -> Path:
+    """Create and return a NEW folder root/name (or "name (2)", "name (3)"…).
+
+    Never returns a folder that already existed, so cleaning up a failed or
+    cancelled encode can't touch anything the user had there before.
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    base = name.strip().rstrip(".") or "video"
+    for n in range(1, 1000):
+        candidate = root / (base if n == 1 else f"{base} ({n})")
+        try:
+            candidate.mkdir()
+        except FileExistsError:
+            continue
+        return candidate
+    raise OSError(f"Too many folders named {base!r} in {root}")
+
+
+def unique_folder_name(video: Path) -> str:
+    """<slug>-<6 hex>: unique per encode. Hosted files are cached "forever", so a
+    re-encode must never reuse an old folder name (= link) once uploaded."""
+    return f"{folder_slug(video.stem)}-{uuid.uuid4().hex[:6]}"
+
+
+def remove_unfinished(root: Path) -> list[str]:
+    """Delete encodes in root that never finished (a crash or a closed window).
+
+    Only folders holding our INCOMPLETE marker are touched. Returns their names.
+    """
+    removed: list[str] = []
+    if root.is_dir():
+        for marker in root.glob(f"*/{INCOMPLETE}"):
+            shutil.rmtree(marker.parent, ignore_errors=True)
+            removed.append(marker.parent.name)
+    return removed
 
 
 @dataclass
 class Job:
     path: Path
-    upload: bool
     use_gpu: bool
+    out_root: Path
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     status: Status = "queued"
-    progress: float = 0.0  # of the current stage, 0..1
+    progress: float = 0.0  # 0..1
     message: str = "Waiting…"
     eta_seconds: float | None = None
     # filled in as the job runs
@@ -38,8 +84,6 @@ class Job:
     duration: float | None = None
     qualities: list[str] = field(default_factory=list)
     gpu: bool | None = None
-    video_id: str | None = None
-    url: str | None = None
     out_dir: Path | None = None
     error: str | None = None
     cancel: threading.Event = field(default_factory=threading.Event, repr=False)
@@ -49,7 +93,6 @@ class Job:
             "id": self.id,
             "name": self.path.name,
             "path": str(self.path),
-            "upload": self.upload,
             "status": self.status,
             "progress": round(self.progress, 4),
             "message": self.message,
@@ -58,31 +101,18 @@ class Job:
             "duration": None if self.duration is None else round(self.duration),
             "qualities": self.qualities,
             "gpu": self.gpu,
-            "videoId": self.video_id,
-            "url": self.url,
             "folder": str(self.out_dir) if self.out_dir and self.out_dir.exists() else None,
             "error": self.error,
         }
 
 
-INCOMPLETE = ".incomplete"  # marker file: this folder's encode never finished
-PENDING_UPLOADS = "pending-uploads.txt"  # video ids whose upload never finished
-
-
 class JobQueue:
     """Jobs run one at a time. Every status change happens under one lock, so a
-    job cancelled while queued can never start, and the page always sees a
+    job cancelled while queued can never start, and the window always sees a
     consistent state."""
 
-    def __init__(
-        self,
-        settings: Settings,
-        r2_factory: Callable[[Settings], R2] = R2.from_settings,
-        *,
-        start: bool = True,
-    ):
+    def __init__(self, settings: Settings, *, start: bool = True):
         self.settings = settings
-        self.r2_factory = r2_factory
         self.jobs: list[Job] = []
         self._lock = threading.Lock()
         self._wake = threading.Event()
@@ -92,9 +122,10 @@ class JobQueue:
             self._thread = threading.Thread(target=self._run, daemon=True, name="encoder")
             self._thread.start()
 
-    # ── public API (called from web requests) ──
-    def add(self, paths: list[str], *, upload: bool, use_gpu: bool) -> list[Job]:
-        new = [Job(Path(p), upload=upload, use_gpu=use_gpu) for p in paths]
+    # ── public API (called from the window) ──
+    def add(self, paths: list[str], *, use_gpu: bool, out_root: Path | None = None) -> list[Job]:
+        root = out_root or self.settings.work_dir
+        new = [Job(Path(p), use_gpu=use_gpu, out_root=root) for p in paths]
         with self._lock:
             self.jobs.extend(new)
         self._wake.set()
@@ -119,7 +150,7 @@ class JobQueue:
             return True
 
     def remove(self, job_id: str) -> bool:
-        """Forget a finished job (encoded files of encode-only jobs stay on disk)."""
+        """Forget a finished job (its encoded files stay on disk)."""
         with self._lock:
             job = next((j for j in self.jobs if j.id == job_id), None)
             if job is None or job.status not in FINISHED:
@@ -132,7 +163,7 @@ class JobQueue:
             return any(j.status not in FINISHED for j in self.jobs)
 
     def stop(self, timeout: float = 10) -> None:
-        """Stop the worker after the current job (used by tests)."""
+        """Cancel everything and stop the worker (stops ffmpeg, removes partial files)."""
         self._stopping = True
         with self._lock:
             for job in self.jobs:
@@ -140,51 +171,6 @@ class JobQueue:
         self._wake.set()
         if self._thread is not None:
             self._thread.join(timeout)
-
-    # ── left over from a window closed mid-job ──
-    def recover(self) -> list[str]:
-        """Delete half-finished encodes, and half-uploaded videos in R2. Returns notes."""
-        notes: list[str] = []
-        work = self.settings.work_dir
-        if work.is_dir():
-            for marker in work.glob(f"*/{INCOMPLETE}"):
-                shutil.rmtree(marker.parent, ignore_errors=True)
-                notes.append(f"Removed an unfinished encode ({marker.parent.name})")
-        pending = self._pending_ids()
-        if pending and self.settings.r2_ready:
-            try:
-                r2 = self.r2_factory(self.settings)
-                for video_id in pending:
-                    if r2.delete_video(video_id):
-                        notes.append(f"Removed a half-uploaded video from R2 ({video_id})")
-                    self._unmark_pending(video_id)
-            except R2Error as e:
-                notes.append(f"Couldn't clean up half-uploaded videos yet: {e}")
-        return notes
-
-    def _pending_file(self) -> Path:
-        return self.settings.work_dir / PENDING_UPLOADS
-
-    def _pending_ids(self) -> list[str]:
-        try:
-            return [x for x in self._pending_file().read_text().split() if x]
-        except OSError:
-            return []
-
-    def _mark_pending(self, video_id: str) -> None:
-        self.settings.work_dir.mkdir(parents=True, exist_ok=True)
-        with self._pending_file().open("a") as f:
-            f.write(video_id + "\n")
-
-    def _unmark_pending(self, video_id: str) -> None:
-        rest = [x for x in self._pending_ids() if x != video_id]
-        try:
-            if rest:
-                self._pending_file().write_text("\n".join(rest) + "\n")
-            else:
-                self._pending_file().unlink(missing_ok=True)
-        except OSError:
-            pass
 
     # ── worker ──
     def _claim_next(self) -> Job | None:
@@ -227,30 +213,27 @@ class JobQueue:
         try:
             ffmpeg = find_tool("ffmpeg", s.ffmpeg_dir)
             ffprobe = find_tool("ffprobe", s.ffmpeg_dir)
-            r2 = self.r2_factory(s) if job.upload else None
-            if r2 is not None:
-                r2.check()  # fail before spending minutes encoding
             source = probe(ffprobe, job.path)
-        except (ToolMissingError, ProbeError, R2Error) as e:
+        except (ToolMissingError, ProbeError) as e:
             return self._finish(job, "failed", "Failed", error=str(e))
         if job.cancel.is_set():
             return self._finish(job, "cancelled", "Cancelled")
 
         rungs = pick_rungs(source.width, source.height)
-        video_id = uuid.uuid4().hex
-        out_dir = s.work_dir / video_id
+        try:
+            out_dir = new_output_dir(job.out_root, unique_folder_name(job.path))
+        except OSError as e:
+            return self._finish(job, "failed", "Failed", error=f"Can't write to that folder: {e}")
+        (out_dir / INCOMPLETE).touch()
         self._set(
             job,
             size=f"{source.width}x{source.height}",
             duration=source.duration,
             qualities=[r.label for r in rungs],
             gpu=job.use_gpu and nvenc_available(ffmpeg),
-            video_id=video_id,
             out_dir=out_dir,
             message="Encoding",
         )
-        out_dir.mkdir(parents=True, exist_ok=True)
-        (out_dir / INCOMPLETE).touch()
         started = time.monotonic()
 
         def on_encode(fraction: float) -> None:
@@ -275,26 +258,5 @@ class JobQueue:
             shutil.rmtree(out_dir, ignore_errors=True)
             return self._finish(job, "failed", "Encoding failed", error=str(e))
         (out_dir / INCOMPLETE).unlink(missing_ok=True)
-
-        if r2 is None:
-            self._set(job, progress=1.0)
-            return self._finish(job, "done", "Encoded (not uploaded)")
-
-        self._set(job, status="uploading", message="Uploading", progress=0.0, eta_seconds=None)
-
-        def on_upload(done: int, total: int) -> None:
-            self._set(job, progress=done / total)
-
-        self._mark_pending(video_id)
-        try:
-            url = r2.upload_video(out_dir, video_id, on_upload, cancel=job.cancel)
-        except CancelledError:
-            self._unmark_pending(video_id)
-            return self._finish(job, "cancelled", "Cancelled (encoded files kept)")
-        except R2Error as e:
-            self._unmark_pending(video_id)
-            return self._finish(job, "failed", "Upload failed (encoded files kept)", error=str(e))
-        self._unmark_pending(video_id)
-        shutil.rmtree(out_dir, ignore_errors=True)
-        self._set(job, url=url, progress=1.0)
-        self._finish(job, "done", "Ready")
+        self._set(job, progress=1.0)
+        self._finish(job, "done", "Saved")

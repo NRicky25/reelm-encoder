@@ -11,3 +11,7 @@ dist/
 # secrets and encoded output
 .env
 output/
+
+# desktop window: your saved choices, and the shortcut (it holds paths on this PC)
+desktop-settings.json
+*.lnk

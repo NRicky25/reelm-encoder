@@ -1,4 +1,4 @@
-"""Encode videos to HLS and upload them to Cloudflare R2 for Reelm."""
+"""Encode videos to HLS (1080p / 720p / 480p) for Reelm."""
 
 import sys
 
