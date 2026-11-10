@@ -24,6 +24,18 @@ def test_wide_cinema_keeps_its_shape():
     assert sizes(1920, 816) == [(1920, 816), (1280, 544), (854, 362)]
 
 
+@pytest.mark.parametrize("w,h", [(1920, 816), (1920, 800), (1998, 1080)])
+def test_wide_cinema_is_labelled_like_16_9(w, h):
+    # 1920x800 is full-HD width with the black bars left out: it's "1080p", not "800p".
+    assert labels(w, h) == ["1080p", "720p", "480p"]
+
+
+def test_labels_for_other_shapes():
+    assert labels(1440, 1080)[0] == "1080p"  # 4:3 goes by its height
+    assert labels(640, 480) == ["480p"]
+    assert labels(1366, 768)[0] == "768p"
+
+
 def test_portrait_phone_video():
     assert sizes(1080, 1920) == [(1080, 1920), (720, 1280), (480, 854)]
     assert labels(1080, 1920) == ["1080p", "720p", "480p"]

@@ -24,7 +24,10 @@ class Rung:
 
     @property
     def label(self) -> str:
-        return f"{min(self.width, self.height)}p"
+        """Named like the 16:9 picture of the same width, as streaming sites do:
+        1920x800 (cinema) is "1080p", not "800p". 4:3 and narrower go by height."""
+        long_, short = max(self.width, self.height), min(self.width, self.height)
+        return f"{max(short, round(long_ * 9 / 16))}p"
 
 
 def _even(n: float) -> int:
