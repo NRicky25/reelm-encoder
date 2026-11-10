@@ -11,17 +11,36 @@ movie.mp4 ──ffmpeg──▶ movie-3f9a2c/  ──you upload──▶ R2 (vid
                        ├ v1080p/ v720p/ v480p/
 ```
 
-## Setup
+## Requirements
 
-1. **ffmpeg**: `winget install Gyan.FFmpeg` (found automatically; or set `FFMPEG_DIR`).
-2. `uv sync`
-3. Optional: copy `.env.example` to `.env` and set `PUBLIC_URL` (where your videos are
-   hosted). The window then shows each video's full link, ready to copy.
-4. `uv run reelm-encoder check`
+- **Windows 10 or 11** (64-bit)
+- **[uv](https://docs.astral.sh/uv/)**: installs Python 3.12 and all packages for you.
+  Install it once with `winget install --id=astral-sh.uv -e`, then open a new terminal.
+- **ffmpeg**: `winget install Gyan.FFmpeg` (found automatically, even when it isn't on
+  PATH; or set `FFMPEG_DIR` in `.env`).
+- **Optional: an NVIDIA graphics card** for fast encoding (NVENC). Without one it
+  encodes on the processor, which is slower.
+
+## Install
+
+```
+git clone https://github.com/NRicky25/reelm-encoder.git
+cd reelm-encoder
+.\setup.cmd
+```
+
+(Or download the ZIP from GitHub, extract it, and double-click **`setup.cmd`**.)
+
+`setup.cmd` checks for uv, installs everything (`uv sync`), checks ffmpeg and the
+graphics card (`reelm-encoder check`), and creates a **Reelm Encoder** shortcut in
+the folder. Run it again after updating (`git pull`) to pick up new packages.
+
+Optional: copy `.env.example` to `.env` and set `PUBLIC_URL` (where your videos are
+hosted). The window then shows each video's full link, ready to copy.
 
 ## Use
 
-Double-click **`Reelm Encoder.lnk`** (or run `uv run reelm-encoder app`):
+Double-click the **Reelm Encoder** shortcut (or run `uv run reelm-encoder app`):
 
 1. **Save to:** pick the folder the results go in (default `Videos\Reelm Encoded`).
 2. **Encode on:** graphics card (fast) or processor.
@@ -42,12 +61,6 @@ uv run reelm-encoder encode "D:\videos\episode 1.mp4" --out D:\enc  # into D:\en
 uv run reelm-encoder encode clip.mp4 --cpu                          # don't use the GPU
 ```
 
-### The shortcut
-
-`Reelm Encoder.lnk` isn't in git (it holds paths on this PC). To make it again:
-a shortcut to `.venv\Scripts\pythonw.exe` with arguments `-m reelm_encoder.desktop`,
-starting in this folder, with the icon `src\reelm_encoder\assets\icon.ico`.
-
 ## Notes
 
 - **Folder names** look like `episode-1-3f9a2c`: the video's name made safe for a link,
@@ -64,6 +77,15 @@ starting in this folder, with the icon `src\reelm_encoder\assets\icon.ico`.
   several audio tracks the default one is used.
 - Subtitles: make a `.vtt` with the Subtitle Maker. The encoder doesn't include it yet.
 - Only encode and stream videos you have the rights to.
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `'uv' is not recognized` | Install uv (see Requirements), then open a **new** terminal. |
+| Badge says "ffmpeg missing" | `winget install Gyan.FFmpeg`, then reopen the app. |
+| Badge says "processor only" on a PC with an NVIDIA card | Update the NVIDIA driver, then reopen the app. |
+| The window is blank | Install the [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (built into Windows 11). |
 
 ## Development
 
